@@ -1,4 +1,4 @@
-# Computing-L1-type-estimators-in-linear-regression-using-modern-linear-programming-solvers-with-impl
+# Computing-L1-type-estimators-in-linear-regression-using-modern-linear-programming-solvers-with-implementation-in-python
 Graduation project in python
 
 In linear regression, L1-norm-based regression estimators are usually preferred to the commonly used least-squares estimator 
