@@ -1,0 +1,239 @@
+##simulate the data set by the prerequisite conditions
+import numpy as np
+from numpy import *
+seed = 10
+np.random.seed( seed )
+nump=2
+numn=300000
+
+#####set beta -- create p-dimension beta
+beta=np.random.rand(nump)  
+beta=np.matrix(beta)
+print(beta)
+
+#####construct normal distribution error N(0,1)
+e=1*np.random.randn(1,numn)+0
+
+#####construct x in normal distribution with mu and sigma coming from uniform distribution
+sigma=np.random.uniform(1,2,nump)
+mu=np.random.uniform(1,2,nump)
+x=np.zeros((nump,numn))
+for i in range(nump):
+    x[i]=sigma[i]*np.random.randn(1,numn)+mu[i]
+
+#####construct y from x and error and fixed beta
+y=beta*x+e
+
+	For LAD regression
+#convert or prepare original data set into the empirical data implemented into solvers under LAD regression according to the regression model
+# Inputs x,y
+# Targets beta
+V = -x  # the matrix of x
+C = []  # the value of y
+for i in range(numn):
+    C.append(y[0,i])
+numobject=len(C) # the dimension of Y after conversion
+numfeature=len(V) # the dimension of β after conversion
+
+	For Rank regression
+# convert or prepare original data set into the empirical data implemented into solvers under Rank regression according to the regression model
+# Inputs x,y
+# Targets beta
+C=[]   # the value of y
+V=[]  # the matrix of x
+for i in range(numn-1):
+    for j in range(numn):
+        if i<j:
+            C.append(y[0,i]-y[0,j])
+            V.append(x[:,j]-x[:,i])
+V=np.asmatrix(V).transpose()
+V=np.array(V.tolist())
+numobject=len(C)
+numfeature=len(V)
+
+	For Quantile regression
+The same with LAD but add extra parameter τ. When it equals to 0.5, the quantile regression becomes LAD regression.
+t=0.5 # τ∈[0,1]
+
+
+1.	GLOP-F1
+####install wrapper and call the solver
+from ortools.linear_solver import pywraplp
+solver = pywraplp.Solver('SolveSimpleSystem',
+                         pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
+
+#### Create the u variables and regressor variables
+u = [ solver.NumVar(-solver.infinity(), solver.infinity(), 'u'+str(i)) for i in range(numobject) ]
+x = [ solver.NumVar(-solver.infinity(), solver.infinity(), 'x'+str(i)) for i in range(numfeature) ]
+
+#### Set the objective function
+objective = solver.Objective()
+for i in range(numobject):
+    objective.SetCoefficient( u[i], 1 )
+
+#### Add constraints
+for i in range(numobject):
+    # One pair of constraints for each variable u
+    constraint = solver.Constraint(-C[i], solver.infinity(), 'Pos' + str(i))
+    constraint.SetCoefficient(u[i], 1)
+    for j in range(numfeature):
+        constraint.SetCoefficient(x[j], V[j][i])
+    
+    constraint = solver.Constraint(C[i], solver.infinity(), 'Neg' + str(i))
+    constraint.SetCoefficient(u[i], 1)
+    for j in range(numfeature):
+        constraint.SetCoefficient(x[j], -V[j][i])
+
+#### Solve the model
+%time solver.Solve()
+# Uncomment the following lines of code to export the model
+# modelStr = solver.ExportModelAsLpFormat(False)
+# with open("glopmodel.lp",'w') as lpFile:
+#    lpFile.write(modelStr)
+
+#### Print the solution
+# We assume that the solver did not run into problem
+# obtaining an optimal solution. 
+print('Optimal value = ' + str(objective.Value()))
+# Uncomment the following lines of code to display the solution
+for i in range(numfeature):
+    print( x[i].name() + ' = ' + str(x[i].solution_value()) )
+
+2.	GLOP-F2
+####install wrapper and call the solver
+from ortools.linear_solver import pywraplp
+solver = pywraplp.Solver('SolveSimpleSystem',
+                         pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
+
+#### Create the u variables and regressor variables
+uP = [ solver.NumVar(-solver.infinity(), solver.infinity(), 'uP'+str(i)) for i in range(numobject) ]
+uN = [ solver.NumVar(-solver.infinity(), solver.infinity(), 'uN'+str(i)) for i in range(numobject) ]
+x = [ solver.NumVar(-solver.infinity(), solver.infinity(), 'x'+str(i)) for i in range(numfeature) ]
+
+#### Set the objective function
+## for general
+objective = solver.Objective()
+for i in range(numobject):
+    objective.SetCoefficient( uP[i], 1)
+    objective.SetCoefficient( uN[i],1)
+## for quantile regression
+objective = solver.Objective()
+for i in range(numobject):
+    objective.SetCoefficient( uP[i], t )
+    objective.SetCoefficient( uN[i],1-t)
+   # Add constraints
+for i in range(numobject):
+    # One pair of constraints for each variable u
+    constraint = solver.Constraint(-C[i], -C[i], 'feature' + str(i))#for the real equation part
+    for j in range(numfeature):
+        constraint.SetCoefficient(x[j], V[j][i])
+    constraint.SetCoefficient(uP[i], -1)
+    constraint.SetCoefficient(uN[i], 1)
+    
+for i in range(numobject):
+    constraint = solver.Constraint(0, solver.infinity(), 'objP' + str(i))#for the u part
+    constraint.SetCoefficient(uP[i], 1)
+for i in range(numobject):
+    constraint = solver.Constraint(0, solver.infinity(), 'objN' + str(i))#for the u part
+    constraint.SetCoefficient(uN[i], 1)
+
+#### Solve the model
+%time solver.Solve()
+# Uncomment the following lines of code to export the model
+# modelStr = solver.ExportModelAsLpFormat(False)
+# with open("glopmodel.lp",'w') as lpFile:
+#    lpFile.write(modelStr)
+
+#### Print the solution
+print('Optimal value = ' + str(objective.Value()))
+# Uncomment the following lines of code to display the solution
+#for i in range(2*numobject):
+#    print( u[i].name() + ' = ' + str(u[i].solution_value()) )
+for i in range(numfeature):
+    print( x[i].name() + ' = ' + str(x[i].solution_value()) )
+
+3.	GUROBI-F1
+####install the module in python and Create a new model
+from gurobipy import *
+m = Model("mip1")
+
+#### Create the u variables and x variables
+u={}
+for i in range(numobject):
+    u[i] = ['u'+str(i)]
+u=m.addVars(u,name='u',lb=-GRB.INFINITY)
+x={}
+for i in range(numfeature):
+    x[i] = ['x'+str(i)]
+x=m.addVars(x,name='x',lb=-GRB.INFINITY)
+m.update()
+# Set the objective function
+#Method 1 is more concise but slower than the method 2
+m.setObjective(quicksum(u[i] for i in range(numobject)),GRB.MINIMIZE)
+
+#Method 2 is using the fastest approach of addTerms and LinExpr for building a large expression in gurobi
+#Uncomment the following lines to get the method 2
+#a=LinExpr()
+#for i in range(numobject):
+#    a.addTerms(1,u[i])
+#m.setObjective(a,GRB.MINIMIZE)
+
+#### Add contraints
+for i in range(numobject):
+    m.addConstr(quicksum(x[j]*V[j][i] for j in range(numfeature))+u[i],GRB.GREATER_EQUAL,-C[i],'pos'+str(i))
+    m.addConstr(quicksum(-x[j]*V[j][i] for j in range(numfeature))+u[i],GRB.GREATER_EQUAL,C[i],'neg'+str(i))
+
+ #### Solve the model 
+##choose the method  1 means simplex and 2 means barrier, default method is concurrent
+m.reset()
+m.Params.method=1
+#m.Params.method=2   
+m.optimize()
+print('the run time is ',m.Runtime)
+# Uncomment the following lines of code to display the solution
+for rv in m.getVars():
+        print(rv.varName, rv.x)
+
+4.	GUROBI-F2
+#####install the module in python and Create a new model
+from gurobipy import *
+m = Model("mip1")
+
+##### Create the u variables and x variables
+uP={}
+uN={}
+for i in range(numobject):
+    uP[i] = ['uP'+str(i)]
+    uN[i] = ['uN'+str(i)]
+uP=m.addVars(uP,name='uP',lb=-GRB.INFINITY)
+uN=m.addVars(uN,name='uN',lb=-GRB.INFINITY)
+x={}
+for i in range(numfeature):
+    x[i] = ['x'+str(i)]
+x=m.addVars(x,name='x',lb=-GRB.INFINITY)
+m.update()
+
+##### Set the objective function
+##for general 
+m.setObjective(quicksum(uP[i]+uN[i] for i in range(numobject)),GRB.MINIMIZE)
+
+## for quantile regression
+m.setObjective(quicksum(t*uP[i]+(1-t)*uN[i] for i in range(numobject)),GRB.MINIMIZE)
+
+##### Add contraints
+#main equation constraints
+for i in range(numobject):
+    m.addConstr(quicksum(x[j]*V[j][i] for j in range(numfeature))-uP[i]+uN[i],GRB.EQUAL,-C[i],'feature'+str(i))
+# constraints for u
+for i in range(numobject):
+    m.addConstr(uP[i]>=0,'objP'+str(i))
+    m.addConstr(uN[i]>=0,'objN'+str(i))
+## Solve the model and choose the method    
+m.reset()
+m.Params.method=1 # simplex
+#m.Params.method=2 #barrier
+m.optimize()
+print('the run time is ',m.Runtime)
+# Uncomment the following lines of code to display the solution
+for rv in m.getVars():
+        print(rv.varName, rv.x) 
